@@ -1,13 +1,18 @@
 #include <iostream>
-#include <string>
+#include "Ingestion/document_loader.h"
+
 using namespace std;
 
-void load_documents(const string& folder_path);
-
 int main (){
+    DocumentLoader loader;
+    vector<string> docs = loader.loadDocuments("data/documents");
     cout << "Search Engine Starting..." << endl;
+    cout << "Loaded documents: " << docs.size() << endl;
 
-    load_documents("../data/documents");
-    
+    for (int i=0; i<docs.size(); i++){
+        cout << "Document " << i+1 << ":\n";
+        cout << docs[i] << "\n\n";
+    }
+
     return 0;
 }

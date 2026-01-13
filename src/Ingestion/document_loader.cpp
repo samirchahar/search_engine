@@ -1,31 +1,27 @@
-#include <iostream>
-#include <fstream>
-#include <string>
+#include "document_loader.h"
 #include <filesystem>
+#include <fstream>
 
 using namespace std;
 namespace fs = filesystem;
 
-// This function reads all .txt files from the given folder
-void load_documents(const string& folder_path) {
-    for (const auto& entry : fs::directory_iterator(folder_path)) {
+//here, loadDocuments function belongs to DocumentLoader class
+vector<string> DocumentLoader::loadDocuments(const string& folderPath){
+    vector<string> documents;
 
-        // Check if the file extension is .txt
-        if (entry.path().extension() == ".txt") {
-
-            ifstream file(entry.path());
-            string line;
-
-            cout << "\n--- Reading: "
-                 << entry.path().filename()
-                 << " ---" << endl;
-
-            // Read file line by line
-            while (getline(file, line)) {
-                cout << line << endl;
+    //now loop through all the files in the folder
+    for (const auto& entry : fs::directory_iterator(folderPath)){
+        //only process the .txt files now
+        if (entry.path().extension() == ".txt"){
+            ifstream file (entry.path());
+            string content, line;
+            //read the file line by line now
+            while (getline(file, line)){
+                content += line + " "; //put it into content
             }
-
-            file.close();
+            file.close(); //release system resources
+            documents.push_back(content); //pushback into documents 
         }
     }
+    return documents; //has all the lines 
 }
