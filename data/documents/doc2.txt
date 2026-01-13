@@ -1,0 +1,3 @@
+Distributed systems require careful handling of failures.
+Search engines often run on distributed systems to scale efficiently.
+Fault tolerance is an important design goal.

@@ -1,0 +1,3 @@
+Information retrieval focuses on finding useful information from large collections.
+Ranking algorithms help order search results by relevance.
+Techniques like TF IDF improve search quality.
