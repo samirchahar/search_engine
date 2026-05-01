@@ -1,0 +1,3 @@
+Search engines are designed to retrieve relevant documents quickly.
+An inverted index maps words to the documents in which they appear.
+Efficient indexing is critical for fast search.
