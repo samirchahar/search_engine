@@ -11,6 +11,7 @@ import time
 import sys
 import os
 import darkdetect
+from search.metrics import MetricsTracker
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 
@@ -73,6 +74,7 @@ class SearchApp(ctk.CTk):
         self.all_docs_by_file = {}
 
         self.is_indexed = False
+        self.metrics = MetricsTracker()
 
         self.title("Local Document Search Engine")
         self.geometry("1100x720")
@@ -307,8 +309,9 @@ class SearchApp(ctk.CTk):
             self._update_status("All selected files are already indexed.")
             return
 
-        start = time.time()
+        self.metrics.start_indexing()
         newly_added_docs = []
+        total_words = 0
 
         for filepath in to_index:
             pages = extract_file(filepath)
@@ -316,6 +319,8 @@ class SearchApp(ctk.CTk):
             file_docs = []
             for p in pages:
                 docid = f"{fname}::page{p['page']}"
+                words = len(p["text"].split())
+                total_words += words
                 doc = {
                     "docid": docid,
                     "filepath": filepath,
@@ -326,10 +331,14 @@ class SearchApp(ctk.CTk):
                 newly_added_docs.append(doc)
             self.all_docs_by_file[filepath] = file_docs
 
-        # Rebuild engine with all docs (existing + new)
         self._rebuild_engine()
 
-        elapsed = round((time.time() - start) * 1000)
+        m = self.metrics.finish_indexing(
+            files=len(to_index),
+            pages=len(newly_added_docs),
+            words=total_words
+        )
+        elapsed = m.index_time_ms
         total_files = len(self.all_docs_by_file)
         total_pages = sum(
             len(docs) for docs in self.all_docs_by_file.values())
@@ -457,14 +466,15 @@ class SearchApp(ctk.CTk):
         if not query:
             return
 
-        start = time.time()
+        self.metrics.start_query()
         if self.phrase_var.get():
             results = self.engine.phrase_search(query)
             mode = "phrase"
         else:
             results = self.engine.search(query)
             mode = "keyword"
-        elapsed = round((time.time() - start) * 1000)
+        qm = self.metrics.finish_query(query, mode, len(results))
+        elapsed = qm.latency_ms
         self._display_results(results, mode, elapsed)
 
     # ── Results ────────────────────────────────────────────────────────────
