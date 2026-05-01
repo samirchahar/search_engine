@@ -1,11 +1,11 @@
 # src/ui/app.py
 # Desktop UI — Local Document Search Engine
 # Themes: Slate & Amber (dark) / Stone & Rust (light)
-# Features: cumulative indexing, file removal, score bars, larger fonts
+# Features: larger fonts, indexed file list panel, score bars, dense results
 
 import customtkinter as ctk
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 import threading
 import time
 import sys
@@ -32,9 +32,8 @@ THEMES = {
         "score_bar_bg":  "#2a2a38",
         "file_bg":       "#1e2128",
         "file_text":     "#aaaaaa",
-        "remove_btn":    "#3a2a2a",
-        "remove_text":   "#884444",
         "toggle_icon":   "☀",
+        "name":          "dark",
     },
     "light": {
         "bg_60":         "#f2ede8",
@@ -49,9 +48,8 @@ THEMES = {
         "score_bar_bg":  "#e8e1d9",
         "file_bg":       "#f8f4f0",
         "file_text":     "#888888",
-        "remove_btn":    "#f5e8e8",
-        "remove_text":   "#aa4444",
         "toggle_icon":   "☾",
+        "name":          "light",
     }
 }
 
@@ -66,13 +64,10 @@ def detect_system_theme() -> str:
 class SearchApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.current_theme = detect_system_theme()
-
-        # Master document store — never wiped, only added to or removed from
-        # { filepath: [{"docid":..., "page":..., "text":...}, ...] }
-        self.all_docs_by_file = {}
-
+        self.engine = SearchEngine()
         self.is_indexed = False
+        self.current_theme = detect_system_theme()
+        self.indexed_files = []
 
         self.title("Local Document Search Engine")
         self.geometry("1100x720")
@@ -98,7 +93,6 @@ class SearchApp(ctk.CTk):
             w.destroy()
         self._build_ui()
         self.configure(fg_color=self.T["bg_60"])
-        self.after(0, self._refresh_file_list)
 
     # ── UI Construction ────────────────────────────────────────────────────
 
@@ -155,15 +149,18 @@ class SearchApp(ctk.CTk):
         )
         self.status_label.pack(side="left", padx=(10, 0))
 
-        # ── Body ──
+        # ── Body: left file panel + right results ──
         body = ctk.CTkFrame(self, fg_color=self.T["bg_60"],
                             corner_radius=0)
         body.pack(fill="both", expand=True, side="top")
 
         # ── Left file panel ──
         left = ctk.CTkFrame(
-            body, fg_color=self.T["bg_30"],
-            corner_radius=0, width=210)
+            body,
+            fg_color=self.T["bg_30"],
+            corner_radius=0,
+            width=200
+        )
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
 
@@ -174,8 +171,9 @@ class SearchApp(ctk.CTk):
             text_color=self.T["text_secondary"]
         ).pack(anchor="w", padx=14, pady=(14, 6))
 
-        ctk.CTkFrame(left, fg_color=self.T["border"],
-                     height=1, corner_radius=0).pack(fill="x")
+        sep = ctk.CTkFrame(left, fg_color=self.T["border"],
+                           height=1, corner_radius=0)
+        sep.pack(fill="x")
 
         self.file_list_frame = ctk.CTkScrollableFrame(
             left,
@@ -185,7 +183,15 @@ class SearchApp(ctk.CTk):
         )
         self.file_list_frame.pack(fill="both", expand=True)
 
-        # ── Right results ──
+        self.no_files_label = ctk.CTkLabel(
+            self.file_list_frame,
+            text="No files yet.",
+            font=ctk.CTkFont(size=12),
+            text_color=self.T["text_hint"]
+        )
+        self.no_files_label.pack(pady=20)
+
+        # ── Right results area ──
         right = ctk.CTkFrame(body, fg_color=self.T["bg_60"],
                              corner_radius=0)
         right.pack(side="left", fill="both", expand=True)
@@ -199,12 +205,13 @@ class SearchApp(ctk.CTk):
         )
         self.results_area.pack(fill="both", expand=True)
 
-        ctk.CTkLabel(
+        self.placeholder = ctk.CTkLabel(
             self.results_area,
             text="Index a file or folder above, then type a query below.",
             font=ctk.CTkFont(size=14),
             text_color=self.T["text_hint"]
-        ).pack(pady=100)
+        )
+        self.placeholder.pack(pady=100)
 
         # ── Bottom search bar ──
         bottom = ctk.CTkFrame(
@@ -257,28 +264,16 @@ class SearchApp(ctk.CTk):
             "<Shift-Return>",
             lambda e: (self.phrase_var.set(True), self._run_search()))
 
-        # Populate file list if files already exist (after theme toggle)
-        self._refresh_file_list()
-
     # ── File / Folder Selection ────────────────────────────────────────────
 
     def _select_folder(self):
         folder = filedialog.askdirectory(title="Select documents folder")
         if not folder:
             return
-        supported = ('.pdf', '.txt', '.docx', '.pptx')
-        files = [
-            os.path.join(folder, f)
-            for f in os.listdir(folder)
-            if f.lower().endswith(supported)
-        ]
-        if not files:
-            self._update_status("No supported files found in folder.")
-            return
         self._update_status("Indexing...")
         threading.Thread(
-            target=self._index_new_files,
-            args=(files,), daemon=True).start()
+            target=self._index_paths,
+            args=([folder],), daemon=True).start()
 
     def _select_file(self):
         path = filedialog.askopenfilename(
@@ -293,99 +288,56 @@ class SearchApp(ctk.CTk):
             return
         self._update_status("Indexing...")
         threading.Thread(
-            target=self._index_new_files,
+            target=self._index_paths,
             args=([path],), daemon=True).start()
 
-    def _index_new_files(self, new_files: list):
-        """Add new files to the existing index. Skip already-indexed files."""
-        to_index = [
-            f for f in new_files
-            if f not in self.all_docs_by_file
-        ]
+    def _index_paths(self, paths: list):
+        supported = ('.pdf', '.txt', '.docx', '.pptx')
+        all_files = []
+        for path in paths:
+            if os.path.isdir(path):
+                for f in os.listdir(path):
+                    if f.lower().endswith(supported):
+                        all_files.append(os.path.join(path, f))
+            elif path.lower().endswith(supported):
+                all_files.append(path)
 
-        if not to_index:
-            self._update_status("All selected files are already indexed.")
+        if not all_files:
+            self._update_status("No supported files found.")
             return
 
         start = time.time()
-        newly_added_docs = []
-
-        for filepath in to_index:
+        all_docs = []
+        for filepath in all_files:
             pages = extract_file(filepath)
             fname = os.path.basename(filepath)
-            file_docs = []
             for p in pages:
                 docid = f"{fname}::page{p['page']}"
-                doc = {
+                all_docs.append({
                     "docid": docid,
                     "filepath": filepath,
                     "page": p["page"],
                     "text": p["text"]
-                }
-                file_docs.append(doc)
-                newly_added_docs.append(doc)
-            self.all_docs_by_file[filepath] = file_docs
+                })
 
-        # Rebuild engine with all docs (existing + new)
-        self._rebuild_engine()
+        self.engine = SearchEngine()
+        self.engine.index_documents(all_docs)
+        self.is_indexed = True
+        self.indexed_files = all_files
 
         elapsed = round((time.time() - start) * 1000)
-        total_files = len(self.all_docs_by_file)
-        total_pages = sum(
-            len(docs) for docs in self.all_docs_by_file.values())
         self._update_status(
-            f"{total_pages} pages · {total_files} files · "
-            f"+{len(to_index)} added in {elapsed}ms")
+            f"{len(all_docs)} pages · {len(all_files)} files · "
+            f"indexed in {elapsed}ms")
 
         self.after(0, self._refresh_file_list)
-
-    def _rebuild_engine(self):
-        """Rebuild the search engine from all currently indexed docs."""
-        all_docs = []
-        for docs in self.all_docs_by_file.values():
-            all_docs.extend(docs)
-
-        engine = SearchEngine()
-        engine.index_documents(all_docs)
-        self.engine = engine
-        self.is_indexed = len(all_docs) > 0
-
-    def _remove_file(self, filepath: str):
-        """Remove a file from the index and rebuild."""
-        if filepath not in self.all_docs_by_file:
-            return
-
-        fname = os.path.basename(filepath)
-        confirm = messagebox.askyesno(
-            "Remove file",
-            f"Remove '{fname}' from the index?")
-        if not confirm:
-            return
-
-        del self.all_docs_by_file[filepath]
-        self._rebuild_engine()
-
-        total_files = len(self.all_docs_by_file)
-        total_pages = sum(
-            len(docs) for docs in self.all_docs_by_file.values())
-
-        if total_files == 0:
-            self._update_status(
-                "No documents indexed — use + File or + Folder")
-        else:
-            self._update_status(
-                f"{total_pages} pages · {total_files} files indexed")
-
-        self._refresh_file_list()
         self._clear_results()
-
-    # ── File List Panel ────────────────────────────────────────────────────
 
     def _refresh_file_list(self):
         for w in self.file_list_frame.winfo_children():
             w.destroy()
 
-        if not self.all_docs_by_file:
+        if not self.indexed_files:
             ctk.CTkLabel(
                 self.file_list_frame,
                 text="No files yet.",
@@ -399,53 +351,26 @@ class SearchApp(ctk.CTk):
             ".docx": "📘", ".pptx": "📊"
         }
 
-        for filepath in self.all_docs_by_file:
+        for filepath in self.indexed_files:
             fname = os.path.basename(filepath)
             ext = os.path.splitext(fname)[1].lower()
             icon = ext_icons.get(ext, "📁")
-            pages = len(self.all_docs_by_file[filepath])
 
-            card = ctk.CTkFrame(
+            row = ctk.CTkFrame(
                 self.file_list_frame,
                 fg_color=self.T["file_bg"],
                 corner_radius=6
             )
-            card.pack(fill="x", padx=8, pady=3)
+            row.pack(fill="x", padx=8, pady=3)
 
-            # File name
             ctk.CTkLabel(
-                card,
+                row,
                 text=f"{icon}  {fname}",
                 font=ctk.CTkFont(size=12),
                 text_color=self.T["file_text"],
                 anchor="w",
-                wraplength=150
-            ).pack(anchor="w", padx=10, pady=(7, 1))
-
-            # Page count + remove button row
-            bottom_row = ctk.CTkFrame(card, fg_color="transparent")
-            bottom_row.pack(fill="x", padx=10, pady=(0, 6))
-
-            ctk.CTkLabel(
-                bottom_row,
-                text=f"{pages} page(s)",
-                font=ctk.CTkFont(size=10),
-                text_color=self.T["text_hint"]
-            ).pack(side="left")
-
-            # Capture filepath in closure
-            fp = filepath
-            ctk.CTkButton(
-                bottom_row,
-                text="✕ Remove",
-                width=72, height=20,
-                fg_color=self.T["remove_btn"],
-                text_color=self.T["remove_text"],
-                hover_color=self.T["remove_btn"],
-                font=ctk.CTkFont(size=10),
-                corner_radius=4,
-                command=lambda f=fp: self._remove_file(f)
-            ).pack(side="right")
+                wraplength=160
+            ).pack(anchor="w", padx=10, pady=7)
 
     # ── Search ─────────────────────────────────────────────────────────────
 
@@ -507,8 +432,9 @@ class SearchApp(ctk.CTk):
         )
         row.pack(fill="x", padx=24, pady=0)
 
-        ctk.CTkFrame(row, fg_color=self.T["border"],
-                     height=1, corner_radius=0).pack(fill="x")
+        sep = ctk.CTkFrame(row, fg_color=self.T["border"],
+                           height=1, corner_radius=0)
+        sep.pack(fill="x")
 
         content = ctk.CTkFrame(row, fg_color="transparent")
         content.pack(fill="x", pady=12)
@@ -540,17 +466,17 @@ class SearchApp(ctk.CTk):
         bar_frame.pack(fill="x", pady=(3, 0))
         bar_frame.pack_propagate(False)
 
-        ctk.CTkFrame(bar_frame, fg_color=self.T["score_bar_bg"],
-                     height=4, corner_radius=2).place(
-            relx=0, rely=0, relwidth=1, relheight=1)
+        track = ctk.CTkFrame(bar_frame, fg_color=self.T["score_bar_bg"],
+                             height=4, corner_radius=2)
+        track.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         ratio = min(score / top_score, 1.0) if top_score > 0 else 0
-        ctk.CTkFrame(
+        fill = ctk.CTkFrame(
             bar_frame,
             fg_color=self.T["score_bar"] if index == 1
             else self.T["border"],
-            height=4, corner_radius=2
-        ).place(relx=0, rely=0, relwidth=ratio, relheight=1)
+            height=4, corner_radius=2)
+        fill.place(relx=0, rely=0, relwidth=ratio, relheight=1)
 
         # Page info
         ctk.CTkLabel(
