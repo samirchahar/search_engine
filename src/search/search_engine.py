@@ -7,6 +7,7 @@ import subprocess
 import os
 import re
 import math
+from search.logger import log
 from search.stopwords import remove_stopwords
 
 
@@ -67,6 +68,7 @@ class SearchEngine:
                     self.doc_frequency[word].add(docid)
 
         self.total_docs = len(self.documents)
+        log.info(f"Indexed {len(extracted_docs)} document(s)")
 
     def _compute_tfidf(self, docid: str, query_words: list[str], raw_score: int) -> float:
         """
@@ -93,6 +95,7 @@ class SearchEngine:
         Returns ranked results with snippets.
         """
         query_words = self._tokenize(query)
+        log.debug(f"Search query: '{query}' → tokens: {query_words}")
         if not query_words:
             return []
 

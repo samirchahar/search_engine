@@ -24,3 +24,7 @@ Thumbs.db
 # Build artifacts and executables
 *.exe
 build/
+
+# Data and logs
+data/
+search_engine.log

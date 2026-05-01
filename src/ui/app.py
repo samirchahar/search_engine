@@ -11,9 +11,14 @@ import time
 import sys
 import os
 import darkdetect
-from search.metrics import MetricsTracker
 
+# Add src to path before importing local modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
+
+from extractor.extractor import extract_file
+from search.search_engine import SearchEngine
+from search.metrics import MetricsTracker
+from search.logger import log
 
 from extractor.extractor import extract_file
 from search.search_engine import SearchEngine
@@ -347,6 +352,7 @@ class SearchApp(ctk.CTk):
             f"+{len(to_index)} added in {elapsed}ms")
 
         self.after(0, self._refresh_file_list)
+        log.info(m.summary())
 
     def _rebuild_engine(self):
         """Rebuild the search engine from all currently indexed docs."""
