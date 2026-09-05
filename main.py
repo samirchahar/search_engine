@@ -9,6 +9,7 @@ sys.path.insert(0, 'src')
 
 from extractor.extractor import extract_file
 from search.search_engine import SearchEngine
+from search.vector_search import VectorSearch
 
 
 def load_folder(folder_path: str, engine: SearchEngine):
@@ -94,5 +95,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     engine = SearchEngine()
+    print("Loading semantic search model (first run downloads ~90MB)...")
+    vs = VectorSearch()
+    engine.enable_vector_search(vs)
     load_folder(folder_path, engine)
     run_search_loop(engine)
