@@ -28,3 +28,6 @@ build/
 # Data and logs
 data/
 search_engine.log
+
+
+chroma_store/
