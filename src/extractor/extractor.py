@@ -3,6 +3,8 @@
 
 import fitz
 from docx import Document
+from pydantic import ValidationError
+from extractor.file_validator import FileRequest
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dict]:
@@ -44,12 +46,16 @@ def extract_docx(filepath: str) -> list[dict]:
 
 
 def extract_file(filepath: str) -> list[dict]:
-    fp = filepath.lower()
-    if fp.endswith(".pdf"):
+    try:
+        filepath = FileRequest(filepath=filepath).filepath
+    except ValidationError as e:
+        print(f"Rejected: {filepath} — {e.errors()[0]['msg']}")
+        return []
+
+    if filepath.endswith(".pdf"):
         return extract_pdf(filepath)
-    elif fp.endswith(".txt"):
+    elif filepath.endswith(".txt"):
         return extract_txt(filepath)
-    elif fp.endswith(".docx"):
+    elif filepath.endswith(".docx"):
         return extract_docx(filepath)
-    print(f"Unsupported file type: {filepath}")
     return []
