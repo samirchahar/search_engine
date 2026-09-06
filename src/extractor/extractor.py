@@ -3,6 +3,11 @@
 
 import fitz
 from docx import Document
+import pytesseract
+from PIL import Image
+import io
+
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 from pydantic import ValidationError
 from extractor.file_validator import FileRequest
 
@@ -23,11 +28,28 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dic
 def extract_pdf(filepath: str) -> list[dict]:
     results = []
     doc = fitz.open(filepath)
+    needs_ocr = []
+
     for page_num, page in enumerate(doc, start=1):
         text = page.get_text()
         if text.strip():
             results.append({"page": page_num, "text": text})
+        else:
+            needs_ocr.append(page_num)
+
+    if needs_ocr:
+        print(f"  Running OCR on {len(needs_ocr)} scanned page(s)...")
+        for page_num in needs_ocr:
+            page = doc[page_num - 1]
+            mat = fitz.Matrix(300 / 72, 300 / 72)
+            pix = page.get_pixmap(matrix=mat)
+            image = Image.open(io.BytesIO(pix.tobytes("png")))
+            text = pytesseract.image_to_string(image)
+            if text.strip():
+                results.append({"page": page_num, "text": text})
+
     doc.close()
+    results.sort(key=lambda x: x["page"])
     return results
 
 
