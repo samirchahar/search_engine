@@ -10,6 +10,7 @@ sys.path.insert(0, 'src')
 from extractor.extractor import extract_file
 from search.search_engine import SearchEngine
 from search.vector_search import VectorSearch
+from search.llm_answer import generate_answer 
 
 
 def load_folder(folder_path: str, engine: SearchEngine):
@@ -82,7 +83,9 @@ def run_search_loop(engine: SearchEngine):
             print(f"  [{i}] {filename} — Page {r['page']} — Score: {r['score']}")
             print(f"      {r['snippet']}")
             print()
-            
+
+        answer = generate_answer(query, results)
+        print(f"AI Answer: {answer}\n")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -95,7 +98,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     engine = SearchEngine()
-    print("Loading semantic search model (first run downloads ~90MB)...")
+    print("Loading semantic search model...")
     vs = VectorSearch()
     engine.enable_vector_search(vs)
     load_folder(folder_path, engine)
