@@ -6,6 +6,7 @@ from docx import Document
 import pytesseract
 from PIL import Image
 import io
+from pptx import Presentation
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 from pydantic import ValidationError
@@ -66,6 +67,17 @@ def extract_docx(filepath: str) -> list[dict]:
         return []
     return chunk_text(" ".join(paragraphs))
 
+def extract_pptx(filepath: str) -> list[dict]:
+    prs = Presentation(filepath)
+    results = []
+    for slide_num, slide in enumerate(prs.slides, start=1):
+        texts = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text") and shape.text.strip():
+                texts.append(shape.text.strip())
+        if texts:
+            results.append({"page": slide_num, "text": " ".join(texts)})
+    return results
 
 def extract_file(filepath: str) -> list[dict]:
     try:
@@ -80,4 +92,6 @@ def extract_file(filepath: str) -> list[dict]:
         return extract_txt(filepath)
     elif filepath.endswith(".docx"):
         return extract_docx(filepath)
+    elif filepath.endswith(".pptx"):
+        return extract_pptx(filepath)
     return []

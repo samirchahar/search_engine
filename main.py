@@ -20,7 +20,7 @@ def load_folder(folder_path: str, engine: SearchEngine):
     """
     supported = ('.pdf', '.txt', '.docx', '.pptx')
     files = [f for f in os.listdir(folder_path)
-             if f.lower().endswith(supported)]
+        if f.lower().endswith(supported) and not f.startswith('~$')]
 
     if not files:
         print(f"No PDF or TXT files found in: {folder_path}")

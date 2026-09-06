@@ -5,7 +5,7 @@
 import os
 from pydantic import BaseModel, field_validator
 
-SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx"}
+SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".docx", ".pptx"}
 
 
 class FileRequest(BaseModel):
