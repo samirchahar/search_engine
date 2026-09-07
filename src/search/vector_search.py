@@ -148,7 +148,7 @@ class VectorSearch:
         )
         log.info("Vector index reset")
 
-    def _extract_snippet(self, text: str, max_words: int = 30) -> str:
+    def _extract_snippet(self, text: str, max_words: int = 80) -> str:
         """Return first max_words words of text as a snippet."""
         words = text.split()
         snippet = " ".join(words[:max_words])

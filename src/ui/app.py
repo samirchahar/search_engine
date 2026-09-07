@@ -19,9 +19,8 @@ from extractor.extractor import extract_file
 from search.search_engine import SearchEngine
 from search.metrics import MetricsTracker
 from search.logger import log
-
-from extractor.extractor import extract_file
-from search.search_engine import SearchEngine
+from search.vector_search import VectorSearch
+from search.llm_answer import generate_answer
 
 
 THEMES = {
@@ -80,6 +79,8 @@ class SearchApp(ctk.CTk):
 
         self.is_indexed = False
         self.metrics = MetricsTracker()
+        self.vector_search = None
+        self.last_answer = ""
 
         self.title("Local Document Search Engine")
         self.geometry("1100x720")
@@ -106,6 +107,10 @@ class SearchApp(ctk.CTk):
         self._build_ui()
         self.configure(fg_color=self.T["bg_60"])
         self.after(0, self._refresh_file_list)
+        if self.last_results:
+            top_score = self.last_results[0]["score"]
+            self.after(0, lambda: self._render_results(
+                self.last_results, top_score, self.last_answer))
 
     # ── UI Construction ────────────────────────────────────────────────────
 
@@ -208,10 +213,10 @@ class SearchApp(ctk.CTk):
 
         ctk.CTkLabel(
             self.results_area,
-            text="Index a file or folder above, then type a query below.",
-            font=ctk.CTkFont(size=14),
+            text="Index a file or folder to get started.",
+            font=ctk.CTkFont(size=13),
             text_color=self.T["text_hint"]
-        ).pack(pady=100)
+        ).pack(pady=40)
 
         # ── Bottom search bar ──
         bottom = ctk.CTkFrame(
@@ -233,7 +238,20 @@ class SearchApp(ctk.CTk):
             width=20
         ).pack(side="right", padx=(0, 16), pady=20)
 
-        ctk.CTkButton(
+        self.ai_summary_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            bottom,
+            text="AI Summary",
+            variable=self.ai_summary_var,
+            font=ctk.CTkFont(size=12),
+            text_color=self.T["text_secondary"],
+            fg_color=self.T["accent_10"],
+            hover_color=self.T["bg_60"],
+            border_color=self.T["border"],
+            width=20
+        ).pack(side="right", padx=(0, 10), pady=20)
+
+        self.search_button = ctk.CTkButton(
             bottom,
             text="↑",
             width=42, height=36,
@@ -243,7 +261,8 @@ class SearchApp(ctk.CTk):
             font=ctk.CTkFont(size=20, weight="bold"),
             corner_radius=8,
             command=self._run_search
-        ).pack(side="right", padx=(0, 8), pady=15)
+        )
+        self.search_button.pack(side="right", padx=(0, 8), pady=15)
 
         self.search_entry = ctk.CTkEntry(
             bottom,
@@ -360,7 +379,12 @@ class SearchApp(ctk.CTk):
         for docs in self.all_docs_by_file.values():
             all_docs.extend(docs)
 
+        if self.vector_search is None:
+            self._update_status("Loading semantic search model...")
+            self.vector_search = VectorSearch()
+
         engine = SearchEngine()
+        engine.enable_vector_search(self.vector_search)
         engine.index_documents(all_docs)
         self.engine = engine
         self.is_indexed = len(all_docs) > 0
@@ -472,6 +496,14 @@ class SearchApp(ctk.CTk):
         if not query:
             return
 
+        self.search_button.configure(text="…", state="disabled")
+        self.search_entry.configure(state="disabled")
+        self._update_status("Searching...")
+        threading.Thread(
+            target=self._run_search_thread,
+            args=(query,), daemon=True).start()
+
+    def _run_search_thread(self, query):
         self.metrics.start_query()
         if self.phrase_var.get():
             results = self.engine.phrase_search(query)
@@ -481,7 +513,17 @@ class SearchApp(ctk.CTk):
             mode = "keyword"
         qm = self.metrics.finish_query(query, mode, len(results))
         elapsed = qm.latency_ms
-        self._display_results(results, mode, elapsed)
+
+        answer = ""
+        if results and self.ai_summary_var.get():
+            self.after(0, lambda: self._update_status("Generating AI answer..."))
+            answer = generate_answer(query, results)
+
+        self._display_results(results, mode, elapsed, answer)
+        self.after(0, lambda: [
+            self.search_button.configure(text="↑", state="normal"),
+            self.search_entry.configure(state="normal")
+        ])
 
     # ── Results ────────────────────────────────────────────────────────────
 
@@ -489,7 +531,9 @@ class SearchApp(ctk.CTk):
         self.after(0, lambda: [
             w.destroy() for w in self.results_area.winfo_children()])
 
-    def _display_results(self, results, mode, elapsed_ms):
+    def _display_results(self, results, mode, elapsed_ms, answer=""):
+        self.last_results = results
+        self.last_answer = answer
         self._clear_results()
 
         if not results:
@@ -502,91 +546,82 @@ class SearchApp(ctk.CTk):
             self._update_status(f"No results · {elapsed_ms}ms")
             return
 
-        self._update_status(
-            f"{len(results)} result(s) · {mode} · {elapsed_ms}ms")
+        self._update_status(f"{len(results)} result(s) found")
 
         top_score = results[0]["score"] if results else 1
+        self.after(0, lambda: self._render_results(results, top_score, answer))
 
-        self.after(0, lambda: [
-            self._add_result_row(i + 1, r, top_score)
-            for i, r in enumerate(results)
-        ])
+    def _render_results(self, results, top_score, answer):
+        if answer:
+            box = ctk.CTkFrame(
+                self.results_area, fg_color=self.T["file_bg"], corner_radius=8)
+            box.pack(fill="x", padx=24, pady=(16, 8))
+            ctk.CTkLabel(
+                box, text="AI Answer",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=self.T["accent_10"], anchor="w"
+            ).pack(anchor="w", padx=14, pady=(10, 2))
+            self._selectable_text(
+                box, answer, font_size=13, color=self.T["text_primary"]
+            ).pack(fill="x", padx=10, pady=(0, 10))
+
+        ctk.CTkLabel(
+            self.results_area,
+            text=f"Sources ({len(results)})",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self.T["text_secondary"], anchor="w"
+        ).pack(anchor="w", padx=24, pady=(12, 4))
+
+        for i, r in enumerate(results, start=1):
+            self._add_result_row(i, r, top_score)
+
+    def _selectable_text(self, parent, text, font_size=12, color=None):
+        color = color or self.T["text_snippet"]
+        lines = max(1, -(-len(text) // 95))
+        box = ctk.CTkTextbox(
+            parent,
+            height=lines * 20 + 8,
+            fg_color="transparent",
+            text_color=color,
+            font=ctk.CTkFont(size=font_size),
+            wrap="word",
+            activate_scrollbars=False
+        )
+        box.insert("1.0", text)
+        box.configure(state="disabled")
+        return box
 
     def _add_result_row(self, index: int, result: dict, top_score: float):
         filename = os.path.basename(result['filepath'])
-        score = result['score']
 
-        row = ctk.CTkFrame(
-            self.results_area,
-            fg_color=self.T["bg_60"],
-            corner_radius=0
-        )
+        row = ctk.CTkFrame(self.results_area, fg_color=self.T["bg_60"], corner_radius=0)
         row.pack(fill="x", padx=24, pady=0)
-
-        ctk.CTkFrame(row, fg_color=self.T["border"],
-                     height=1, corner_radius=0).pack(fill="x")
+        ctk.CTkFrame(row, fg_color=self.T["border"], height=1, corner_radius=0).pack(fill="x")
 
         content = ctk.CTkFrame(row, fg_color="transparent")
         content.pack(fill="x", pady=12)
 
-        # Filename + score
-        top_line = ctk.CTkFrame(content, fg_color="transparent")
-        top_line.pack(fill="x")
-
         ctk.CTkLabel(
-            top_line,
-            text=filename,
+            content,
+            text=f"{filename}  ·  Page {result['page']}",
             font=ctk.CTkFont(size=14, weight="bold"),
-            text_color=self.T["text_primary"] if index == 1
-            else self.T["text_secondary"],
+            text_color=self.T["text_primary"] if index == 1 else self.T["text_secondary"],
             anchor="w"
-        ).pack(side="left")
+        ).pack(anchor="w")
 
-        ctk.CTkLabel(
-            top_line,
-            text=str(score),
-            font=ctk.CTkFont(size=12),
-            text_color=self.T["accent_10"] if index == 1
-            else self.T["text_hint"],
-            anchor="e"
-        ).pack(side="right")
-
-        # Score bar
         bar_frame = ctk.CTkFrame(content, fg_color="transparent", height=4)
-        bar_frame.pack(fill="x", pady=(3, 0))
+        bar_frame.pack(fill="x", pady=(5, 8))
         bar_frame.pack_propagate(False)
-
-        ctk.CTkFrame(bar_frame, fg_color=self.T["score_bar_bg"],
-                     height=4, corner_radius=2).place(
+        ctk.CTkFrame(bar_frame, fg_color=self.T["score_bar_bg"], height=4, corner_radius=2).place(
             relx=0, rely=0, relwidth=1, relheight=1)
-
-        ratio = min(score / top_score, 1.0) if top_score > 0 else 0
+        ratio = min(result["score"] / top_score, 1.0) if top_score > 0 else 0
         ctk.CTkFrame(
             bar_frame,
-            fg_color=self.T["score_bar"] if index == 1
-            else self.T["border"],
+            fg_color=self.T["score_bar"] if index == 1 else self.T["border"],
             height=4, corner_radius=2
         ).place(relx=0, rely=0, relwidth=ratio, relheight=1)
 
-        # Page info
-        ctk.CTkLabel(
-            content,
-            text=f"Page {result['page']}",
-            font=ctk.CTkFont(size=11),
-            text_color=self.T["text_hint"],
-            anchor="w"
-        ).pack(fill="x", pady=(4, 3))
-
-        # Snippet
-        ctk.CTkLabel(
-            content,
-            text=result['snippet'],
-            font=ctk.CTkFont(size=12),
-            text_color=self.T["text_snippet"],
-            anchor="w",
-            wraplength=800,
-            justify="left"
-        ).pack(fill="x")
+        self._selectable_text(content, result['snippet']).pack(fill="x")
 
     # ── Utilities ──────────────────────────────────────────────────────────
 

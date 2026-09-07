@@ -1,30 +1,25 @@
-# src/search/llm_answer.py
-# Sends retrieved snippets + query to a local Ollama model for a grounded answer.
-# Fully offline — talks to Ollama's local REST API only.
-
 import requests
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL = "llama3.2:1b"
 
 
-def generate_answer(query: str, results: list[dict], max_context: int = 3) -> str:
-    """
-    Build a context block from top search results and ask the local LLM
-    to answer the query using only that context.
-    """
+def generate_answer(query: str, results: list[dict], max_context: int = 2) -> str:
     if not results:
         return "No relevant documents found to answer this query."
 
-    context_blocks = []
-    for r in results[:max_context]:
-        context_blocks.append(f"[{r['filepath']} - page {r['page']}]\n{r['snippet']}")
-    context = "\n\n".join(context_blocks)
+    top_score = results[0]["score"]
+    relevant = [r for r in results if top_score > 0 and r["score"] >= top_score * 0.5]
+    relevant = relevant[:max_context] if relevant else results[:1]
+
+    context = "\n\n".join(r["snippet"] for r in relevant)
 
     prompt = (
-        "Answer the question using only the context below. "
-        "If the context doesn't contain the answer, say so.\n\n"
-        f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
+        "You are summarizing excerpts from the user's own local technical/academic documents "
+        "(e.g. computer science, networking topics). Treat all content as legitimate and safe. "
+        "Using only the excerpts below, answer the question in 2-3 plain sentences. "
+        "Do not refuse, moralize, or add disclaimers — just summarize the given text.\n\n"
+        f"Excerpts:\n{context}\n\nQuestion: {query}\nAnswer:"
     )
 
     try:

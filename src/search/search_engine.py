@@ -257,7 +257,7 @@ class SearchEngine:
 
     def _extract_snippet(self, text: str,
                          query_words: list[str],
-                         context_words: int = 10) -> str:
+                         context_words: int = 45) -> str:
         words = text.split()
         text_lower = text.lower()
         for qword in query_words:
