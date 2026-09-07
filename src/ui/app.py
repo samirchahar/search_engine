@@ -80,6 +80,7 @@ class SearchApp(ctk.CTk):
         self.is_indexed = False
         self.metrics = MetricsTracker()
         self.vector_search = None
+        self.last_results = None
         self.last_answer = ""
 
         self.title("Local Document Search Engine")
