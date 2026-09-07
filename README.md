@@ -1,5 +1,7 @@
 # Argus
 
+![Argus logo](assets/logo.jpeg)
+
 A fully offline, air-gapped document search engine with retrieval-augmented
 generation (RAG). Combines a C++ inverted index (keyword and phrase search,
 TF-IDF ranking) with ChromaDB semantic search, and generates grounded
