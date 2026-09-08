@@ -58,6 +58,7 @@ class SearchEngine:
         """
         for doc in extracted_docs:
             docid = doc["docid"]
+            docid = docid.replace(" ", "_")
             self.documents[docid] = {
                 "filepath": doc["filepath"],
                 "page": doc["page"],

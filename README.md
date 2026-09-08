@@ -7,7 +7,7 @@ generation (RAG). Combines a C++ inverted index (keyword and phrase search,
 TF-IDF ranking) with ChromaDB semantic search, and generates grounded
 answers using a local Ollama LLM. No data ever leaves your machine.
 
-Named after *Argus Panoptes*, the *many-eyed giant from Greek mythology* who
+Named after *Argus Panoptes*, the *many-eyed giant* from *Greek mythology* who
 could watch everything at once. Fitting for a tool built to search across
 every document you have, without missing anything and without sending
 any of it out to the cloud.
@@ -49,11 +49,16 @@ python src/ui/app.py
 
 PDF (including scanned pages via OCR), TXT, DOCX, PPTX.
 
+## Benchmarks
+
+See [BENCHMARKS.md](BENCHMARKS.md) for indexing throughput and query
+latency numbers on real test corpora.
+
 ## Architecture
 
-- `src/extractor/` — text extraction and Pydantic path/type validation
-- `src/indexer/` — C++ positional inverted index (keyword and phrase search)
-- `src/search/` — Python orchestration: TF-IDF ranking, ChromaDB semantic
+- `src/extractor/` : text extraction and Pydantic path/type validation
+- `src/indexer/` : C++ positional inverted index (keyword and phrase search)
+- `src/search/` : Python orchestration: TF-IDF ranking, ChromaDB semantic
   search, hybrid merging, Ollama answer generation
-- `src/ui/` — desktop GUI (customtkinter)
-- `main.py` — CLI entry point
+- `src/ui/` : desktop GUI (customtkinter)
+- `main.py` : CLI entry point

@@ -10,10 +10,11 @@ sys.path.insert(0, 'src')
 from extractor.extractor import extract_file
 from search.search_engine import SearchEngine
 from search.vector_search import VectorSearch
-from search.llm_answer import generate_answer 
+from search.llm_answer import generate_answer
+from search.metrics import MetricsTracker
 
 
-def load_folder(folder_path: str, engine: SearchEngine):
+def load_folder(folder_path: str, engine: SearchEngine, metrics: MetricsTracker):
     """
     Scan a folder for PDF and TXT files.
     Extract text and index all documents.
@@ -27,13 +28,16 @@ def load_folder(folder_path: str, engine: SearchEngine):
         return
 
     print(f"Found {len(files)} file(s). Indexing...")
+    metrics.start_indexing()
 
     all_docs = []
+    total_words = 0
     for filename in files:
         filepath = os.path.join(folder_path, filename)
         pages = extract_file(filepath)
         for page_data in pages:
             docid = f"{filename}::page{page_data['page']}"
+            total_words += len(page_data["text"].split())
             all_docs.append({
                 "docid": docid,
                 "filepath": filepath,
@@ -42,11 +46,12 @@ def load_folder(folder_path: str, engine: SearchEngine):
             })
 
     engine.index_documents(all_docs)
+    m = metrics.finish_indexing(files=len(files), pages=len(all_docs), words=total_words)
     print(f"Indexed {len(all_docs)} page(s) across {len(files)} file(s).")
+    print(f"  {m.summary()}")
     print()
 
-
-def run_search_loop(engine: SearchEngine):
+def run_search_loop(engine: SearchEngine, metrics: MetricsTracker):
     """
     Interactive search loop.
     Prefix query with 'phrase:' for exact phrase search.
@@ -62,9 +67,11 @@ def run_search_loop(engine: SearchEngine):
         if not query:
             continue
         if query.lower() == 'quit':
+            print(metrics.summary())
             print("Goodbye.")
             break
 
+        metrics.start_query()
         if query.lower().startswith("phrase:"):
             actual_query = query[7:].strip()
             results = engine.phrase_search(actual_query)
@@ -72,12 +79,13 @@ def run_search_loop(engine: SearchEngine):
         else:
             results = engine.search(query)
             search_type = "keyword"
+        qm = metrics.finish_query(query, search_type, len(results))
 
         if not results:
-            print(f"No results found.\n")
+            print(f"No results found. ({qm.latency_ms}ms)\n")
             continue
 
-        print(f"\nFound {len(results)} result(s) [{search_type}]:\n")
+        print(f"\nFound {len(results)} result(s) [{search_type}] in {qm.latency_ms}ms:\n")
         for i, r in enumerate(results, start=1):
             filename = os.path.basename(r['filepath'])
             print(f"  [{i}] {filename} — Page {r['page']} — Score: {r['score']}")
@@ -97,9 +105,10 @@ if __name__ == "__main__":
         print(f"Error: '{folder_path}' is not a valid folder.")
         sys.exit(1)
 
+    metrics = MetricsTracker()
     engine = SearchEngine()
     print("Loading semantic search model...")
     vs = VectorSearch()
     engine.enable_vector_search(vs)
-    load_folder(folder_path, engine)
-    run_search_loop(engine)
+    load_folder(folder_path, engine, metrics)
+    run_search_loop(engine, metrics)
